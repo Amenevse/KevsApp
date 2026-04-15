@@ -33,7 +33,6 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        // İkonlar en güvenilir ve evrensel olanlarla güncellendi.
         import { 
           Heart, Clock, MessageCircle, User, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, Layout, Sparkles, Coffee, ImagePlus, Wand, Brain, Edit, Upload, Smile, Gamepad
         } from 'lucide-react';
@@ -108,7 +107,7 @@
 
         const AIService = {
           generateText: async (prompt, systemInstruction = "") => {
-            const apiKey = ""; // Sistem API Key'i enjekte eder
+            const apiKey = ""; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             
             const payload = {
@@ -131,7 +130,9 @@
                   await new Promise(resolve => setTimeout(resolve, delay));
                   return fetchWithRetry(retries - 1, delay * 2);
                 }
-                throw error;
+                // GitHub Pages'de API anahtarı olmadığı için çökmesini engelle (Fallback)
+                console.warn("Yapay zeka metin servisi yanıt vermedi, yedek mesaj kullanılıyor.");
+                return "Canım, bugün Sakarya'da hava güneşli. Keşke şu an yanımda olsaydın, seni her zamankinden daha çok özledim... 💖";
               }
             };
             return fetchWithRetry();
@@ -142,10 +143,17 @@
             const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
             const payload = { instances: { prompt: prompt }, parameters: { sampleCount: 1 } };
             
-            const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (!response.ok) throw new Error('Imagen API Error');
-            const data = await response.json();
-            return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
+            try {
+              const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              if (!response.ok) throw new Error('Imagen API Error');
+              const data = await response.json();
+              return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
+            } catch (error) {
+              // GitHub Pages'de görsel üretimi çökmesin diye Placeholder Fallback eklendi
+              console.warn("Yapay zeka görsel üretemedi, yedek görsel kullanılıyor.");
+              const safePrompt = encodeURIComponent(prompt.substring(0, 30) + "...");
+              return `https://placehold.co/600x600/fecdd3/e11d48.png?text=${safePrompt}`;
+            }
           }
         };
 
@@ -252,7 +260,13 @@
 
           const [activeTab, setActiveTab] = useState('home');
           const [journeyTab, setJourneyTab] = useState('timeline');
+          
+          // Veritabanı Listeleri
           const [memories, setMemories] = useState([]);
+          const [chatMessages, setChatMessages] = useState([]);
+          const [goals, setGoals] = useState([]); // Yeni Hayaller State'i
+          const [newGoalInput, setNewGoalInput] = useState(''); // Yeni Hayal Input'u
+          
           const [isGeneratingMemory, setIsGeneratingMemory] = useState(false);
           const [activeVrRoom, setActiveVrRoom] = useState(null);
           
@@ -263,7 +277,7 @@
           const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
           const [isEditingProfile, setIsEditingProfile] = useState(false);
           const [profileForm, setProfileForm] = useState({ fullName: '', age: '', gender: '' });
-          const [chatMessages, setChatMessages] = useState([]);
+          
           const [chatInput, setChatInput] = useState('');
           const [searchQuery, setSearchQuery] = useState('');
           const [searchResults, setSearchResults] = useState([]);
@@ -281,8 +295,6 @@
             }
             const initAuth = async () => {
               try {
-                // Eğer Canvas içindeysek ve kendi projemizi kullanıyorsak token uyuşmazlığı olur.
-                // Bu durumu yakalayıp doğrudan Anonim girişe (kendi projemize) geçiş yapıyoruz.
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                   try {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -325,19 +337,28 @@
             if (!user || !db || !userProfile?.relationshipId) return;
             const relationshipId = userProfile.relationshipId;
 
+            // Anılar (Memories) dinleyicisi
             const unsubMemories = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'memories'), (snapshot) => {
               const mms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
                 .filter(m => m.relationshipId === relationshipId).sort((a, b) => b.ts - a.ts);
               setMemories(mms);
             });
 
+            // Mesajlar dinleyicisi
             const unsubMessages = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), (snapshot) => {
               const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
                 .filter(m => m.relationshipId === relationshipId).sort((a, b) => a.ts - b.ts);
               setChatMessages(msgs);
             });
 
-            return () => { unsubMemories(); unsubMessages(); };
+            // Hayaller/Hedefler (Goals) dinleyicisi
+            const unsubGoals = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'goals'), (snapshot) => {
+              const gls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
+                .filter(m => m.relationshipId === relationshipId).sort((a, b) => b.ts - a.ts);
+              setGoals(gls);
+            });
+
+            return () => { unsubMemories(); unsubMessages(); unsubGoals(); };
           }, [user, userProfile]);
 
           useEffect(() => {
@@ -384,6 +405,7 @@
             setSearchResults(allUsers.filter(u => u.username !== userProfile.username && u.username.includes(searchQuery.toLowerCase().trim()) && !u.partnerId && u.isPublic));
           };
 
+          // Özledim Butonu İşlemi
           const handleMissYouGenerate = async () => {
             if (!user || !userProfile?.relationshipId) return;
             setIsGeneratingMemory(true);
@@ -395,8 +417,32 @@
               const imageUrl = romanticImages[Math.floor(Math.random() * romanticImages.length)];
               await MemoryService.createMemory(userProfile.relationshipId, userProfile.username, aiText, imageUrl, context);
               setActiveTab('journey'); setJourneyTab('timeline');
-            } catch (e) { console.error(e); alert("Hata oluştu."); }
+            } catch (e) { 
+              console.error(e); 
+              alert("Hata oluştu. İnternet bağlantınızı kontrol edin."); 
+            }
             finally { setIsGeneratingMemory(false); }
+          };
+
+          // Yeni Hayal Ekleme İşlemi
+          const handleAddGoal = async (e) => {
+            e.preventDefault();
+            if (!newGoalInput.trim() || !userProfile?.relationshipId) return;
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goals'), {
+              relationshipId: userProfile.relationshipId,
+              text: newGoalInput.trim(),
+              isCompleted: false,
+              createdAt: serverTimestamp()
+            });
+            setNewGoalInput('');
+          };
+
+          // Hayali Tamamlandı Olarak İşaretleme İşlemi
+          const toggleGoal = async (goal) => {
+            if (!goal || !goal.id) return;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goal.id), {
+              isCompleted: !goal.isCompleted
+            });
           };
 
           const handleSendMessage = async (e) => {
@@ -438,7 +484,10 @@
             try {
               const url = await AIService.generateImage(aiPhotoPrompt);
               setPhotoPreviewUrl(url);
-            } catch (error) { alert("Görsel oluşturulamadı."); } 
+            } catch (error) { 
+              console.error(error);
+              alert("Görsel oluşturulamadı."); 
+            } 
             finally { setIsGeneratingPhoto(false); }
           };
 
@@ -573,7 +622,7 @@
                 <button onClick={()=>setJourneyTab('timeline')} className={`flex-1 py-2 rounded-full text-xs font-bold flex items-center justify-center ${journeyTab==='timeline'?'bg-rose-500 text-white':'bg-slate-100 text-slate-600'}`}><Clock className="w-3 h-3 mr-1"/> Anılar</button>
                 <button onClick={()=>setJourneyTab('board')} className={`flex-1 py-2 rounded-full text-xs font-bold flex items-center justify-center ${journeyTab==='board'?'bg-rose-500 text-white':'bg-slate-100 text-slate-600'}`}><Layout className="w-3 h-3 mr-1"/> Hedefler</button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col">
                 {journeyTab === 'timeline' && (
                   <div className="space-y-6">
                     {memories.map(memory => (
@@ -582,12 +631,43 @@
                         <div className="p-4"><p className="text-sm italic text-slate-700">"{memory.text}"</p></div>
                       </div>
                     ))}
+                    {memories.length === 0 && <p className="text-center text-slate-400 mt-10 text-sm">Henüz bir anı oluşturmadınız. İlk anınızı yaratmak için "Özledim" butonuna basın!</p>}
                   </div>
                 )}
+                
+                {/* YENİLENMİŞ DİNAMİK HEDEFLER/HAYALLER SİSTEMİ */}
                 {journeyTab === 'board' && (
-                  <div className="grid grid-cols-2 gap-4 h-full">
-                    <div className="bg-slate-200/50 rounded-2xl p-3"><h3 className="font-bold text-xs mb-3 text-slate-600">HAYALLERİMİZ</h3><div className="bg-white p-3 rounded-xl shadow-sm mb-2 text-xs border-l-4 border-rose-500">Kapadokya Balon Turu</div></div>
-                    <div className="bg-green-100/50 rounded-2xl p-3"><h3 className="font-bold text-xs mb-3 text-green-700">TAMAMLANANLAR</h3><div className="bg-white p-3 rounded-xl shadow-sm mb-2 text-xs border-l-4 border-green-500 opacity-60 line-through">İlk Buluşma</div></div>
+                  <div className="flex flex-col h-full">
+                    <form onSubmit={handleAddGoal} className="flex gap-2 mb-4">
+                      <input type="text" value={newGoalInput} onChange={e=>setNewGoalInput(e.target.value)} placeholder="Yeni bir hayal veya hedef ekle..." className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                      <button type="submit" disabled={!newGoalInput.trim()} className="bg-rose-500 text-white px-4 rounded-xl font-bold text-xl disabled:bg-rose-300">+</button>
+                    </form>
+                    
+                    <div className="grid grid-cols-2 gap-4 flex-1">
+                      <div className="bg-slate-200/50 rounded-2xl p-3 flex flex-col max-h-[60vh] overflow-y-auto">
+                        <h3 className="font-bold text-[11px] mb-3 text-slate-600 uppercase tracking-wider sticky top-0 bg-slate-100/90 py-1">Yapılacaklar</h3>
+                        <div className="space-y-2">
+                          {goals.filter(g => !g.isCompleted).map(g => (
+                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-rose-500 cursor-pointer hover:bg-slate-50 transition-colors">
+                              {g.text}
+                            </div>
+                          ))}
+                          {goals.filter(g => !g.isCompleted).length === 0 && <p className="text-[10px] text-slate-400 text-center py-4">Liste boş</p>}
+                        </div>
+                      </div>
+                      
+                      <div className="bg-green-100/50 rounded-2xl p-3 flex flex-col max-h-[60vh] overflow-y-auto">
+                        <h3 className="font-bold text-[11px] mb-3 text-green-700 uppercase tracking-wider sticky top-0 bg-green-100/90 py-1">Tamamlananlar</h3>
+                        <div className="space-y-2">
+                          {goals.filter(g => g.isCompleted).map(g => (
+                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-green-500 opacity-60 line-through cursor-pointer hover:bg-slate-50 transition-colors">
+                              {g.text}
+                            </div>
+                          ))}
+                           {goals.filter(g => g.isCompleted).length === 0 && <p className="text-[10px] text-slate-400 text-center py-4">Henüz tamamlanan yok</p>}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -607,7 +687,7 @@
                         {photoMode === 'gallery' ? (
                           <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-2xl p-8 bg-slate-50 relative"><input type="file" accept="image/*" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" /><Upload className="w-10 h-10 text-slate-400 mb-3" /><p className="text-sm font-bold text-slate-600">Fotoğraf Seç</p></div>
                         ) : (
-                          <div className="flex flex-col"><textarea value={aiPhotoPrompt} onChange={e => setAiPhotoPrompt(e.target.value)} placeholder="Örn: Eyfel kulesi..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm min-h-[100px] resize-none mb-3"></textarea><button onClick={handleAiGeneratePhoto} disabled={!aiPhotoPrompt.trim() || isGeneratingPhoto} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 rounded-xl flex items-center justify-center">{isGeneratingPhoto ? <Loader2 className="w-5 h-5 animate-spin mr-2"/> : 'Oluştur'}</button></div>
+                          <div className="flex flex-col"><textarea value={aiPhotoPrompt} onChange={e => setAiPhotoPrompt(e.target.value)} placeholder="Örn: Gün batımında iki kahve fincanı..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm min-h-[100px] resize-none mb-3"></textarea><button onClick={handleAiGeneratePhoto} disabled={!aiPhotoPrompt.trim() || isGeneratingPhoto} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 rounded-xl flex items-center justify-center">{isGeneratingPhoto ? <Loader2 className="w-5 h-5 animate-spin mr-2"/> : 'Üret'}</button></div>
                         )}
                       </>
                     ) : (
