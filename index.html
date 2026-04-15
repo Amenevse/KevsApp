@@ -34,7 +34,7 @@
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
-          Heart, Clock, MessageCircle, User, MapPin, CloudSun, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, KanbanSquare, Sparkles, Coffee, ImagePlus, Wand2, Brain, Image as ImageIcon, Edit2, Upload
+          Heart, Clock, MessageCircle, User, MapPin, CloudSun, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, KanbanSquare, Sparkles, Coffee, ImagePlus, Wand2, Brain, Image as ImageIcon, Edit2, Upload, Smile
         } from 'lucide-react';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithCustomToken, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
@@ -225,6 +225,9 @@
           const [searchQuery, setSearchQuery] = useState('');
           const [searchResults, setSearchResults] = useState([]);
           const [isCalling, setIsCalling] = useState(false);
+          const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+          
+          const customEmojis = ['💖', '🧸', '💌', '💍', '🥂', '👩‍❤️‍👨', '🥺', '🦋', '🔥', '✨', '🌹', '🍓', '🔒', '💘', '🎁'];
           
           const chatEndRef = useRef(null);
 
@@ -552,10 +555,31 @@
                 })}
                 <div ref={chatEndRef} />
               </div>
-              <div className="bg-white border-t border-slate-200 p-3 flex-shrink-0">
+              <div className="bg-white border-t border-slate-200 p-3 flex-shrink-0 relative">
+                {showEmojiPicker && (
+                  <div className="absolute bottom-16 left-3 bg-white border border-slate-200 shadow-lg rounded-2xl p-3 flex flex-wrap gap-2 w-64 z-50 animate-in fade-in slide-in-from-bottom-2">
+                    {customEmojis.map(emoji => (
+                      <button 
+                        key={emoji} 
+                        type="button" 
+                        onClick={() => { setChatInput(prev => prev + emoji); setShowEmojiPicker(false); }}
+                        className="text-2xl hover:scale-125 transition-transform"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
+                    className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0"
+                  >
+                    <Smile className="w-6 h-6" />
+                  </button>
                   <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Mesaj yaz..." className="flex-1 bg-slate-100 rounded-full px-4 py-3 text-sm outline-none" />
-                  <button type="submit" disabled={!chatInput.trim()} className="w-12 h-12 bg-rose-500 rounded-full flex items-center justify-center text-white"><Send className="w-5 h-5 ml-1" /></button>
+                  <button type="submit" disabled={!chatInput.trim()} className="w-12 h-12 bg-rose-500 rounded-full flex items-center justify-center text-white disabled:bg-slate-300 transition-colors flex-shrink-0"><Send className="w-5 h-5 ml-1" /></button>
                 </form>
               </div>
             </div>
