@@ -26,22 +26,22 @@
     </script>
 </head>
 <body class="bg-slate-200">
-    <!-- React uygulamasının yükleneceği ana div -->
     <div id="root"></div>
 
-    <!-- Uygulama Kodları -->
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
+        // Yeni özellikler için Trash2 ikonunu da ekliyoruz
         import { 
-          Heart, Clock, MessageCircle, User, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, Layout, Sparkles, Coffee, ImagePlus, Wand, Brain, Edit, Upload, Smile, Gamepad
+          Heart, Clock, MessageCircle, User, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, Layout, Sparkles, Coffee, ImagePlus, Wand, Brain, Edit, Upload, Smile, Gamepad, Trash2
         } from 'lucide-react';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithCustomToken, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
-        import { getFirestore, collection, addDoc, setDoc, getDocs, onSnapshot, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+        // Silme işlemi için deleteDoc eklendi
+        import { getFirestore, collection, addDoc, setDoc, getDocs, onSnapshot, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from 'firebase/firestore';
 
         // ==========================================
-        // 0. ERROR BOUNDARY (Hata Yakalayıcı Kalkan)
+        // 0. ERROR BOUNDARY
         // ==========================================
         class ErrorBoundary extends React.Component {
           constructor(props) {
@@ -60,11 +60,10 @@
               return (
                 <div className="min-h-screen bg-rose-50 p-8 flex flex-col items-center justify-center font-sans text-slate-800">
                   <div className="bg-white p-6 rounded-2xl shadow-xl max-w-2xl w-full border border-rose-200">
-                    <h2 className="text-2xl font-bold text-rose-600 mb-4">Uygulama Hatası (Çöktü) ⚠️</h2>
-                    <p className="mb-4 font-medium text-slate-600">React bir hata yakaladı. Lütfen aşağıdaki hata mesajını kopyalayıp bana (AI'ye) gönderin cemilay:</p>
+                    <h2 className="text-2xl font-bold text-rose-600 mb-4">Uygulama Hatası ⚠️</h2>
+                    <p className="mb-4 font-medium text-slate-600">Lütfen aşağıdaki hatayı bana gönderin cemilay:</p>
                     <pre className="bg-slate-100 p-4 rounded-xl text-[11px] overflow-auto text-slate-700 border border-slate-200">
-                      <strong className="text-rose-500">{this.state.error && this.state.error.toString()}</strong>
-                      <br /><br />
+                      <strong className="text-rose-500">{this.state.error && this.state.error.toString()}</strong><br /><br />
                       {this.state.errorInfo && this.state.errorInfo.componentStack}
                     </pre>
                   </div>
@@ -102,36 +101,22 @@
         }
 
         // ==========================================
-        // 2. CORE DOMAIN SERVICES (Microservice Simulation)
+        // 2. CORE DOMAIN SERVICES
         // ==========================================
 
         const AIService = {
           generateText: async (prompt, systemInstruction = "") => {
             const apiKey = ""; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-            
-            const payload = {
-              contents: [{ parts: [{ text: prompt }] }],
-              systemInstruction: { parts: [{ text: systemInstruction }] }
-            };
-
+            const payload = { contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: systemInstruction }] } };
             const fetchWithRetry = async (retries = 5, delay = 1000) => {
               try {
-                const response = await fetch(url, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
-                });
+                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (!response.ok) throw new Error('AI API Error');
                 const data = await response.json();
                 return data.candidates?.[0]?.content?.parts?.[0]?.text || "Bağlantı kurulamadı.";
               } catch (error) {
-                if (retries > 0) {
-                  await new Promise(resolve => setTimeout(resolve, delay));
-                  return fetchWithRetry(retries - 1, delay * 2);
-                }
-                // GitHub Pages'de API anahtarı olmadığı için çökmesini engelle (Fallback)
-                console.warn("Yapay zeka metin servisi yanıt vermedi, yedek mesaj kullanılıyor.");
+                if (retries > 0) { await new Promise(resolve => setTimeout(resolve, delay)); return fetchWithRetry(retries - 1, delay * 2); }
                 return "Canım, bugün Sakarya'da hava güneşli. Keşke şu an yanımda olsaydın, seni her zamankinden daha çok özledim... 💖";
               }
             };
@@ -142,15 +127,12 @@
             const apiKey = ""; 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
             const payload = { instances: { prompt: prompt }, parameters: { sampleCount: 1 } };
-            
             try {
               const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
               if (!response.ok) throw new Error('Imagen API Error');
               const data = await response.json();
               return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
             } catch (error) {
-              // GitHub Pages'de görsel üretimi çökmesin diye Placeholder Fallback eklendi
-              console.warn("Yapay zeka görsel üretemedi, yedek görsel kullanılıyor.");
               const safePrompt = encodeURIComponent(prompt.substring(0, 30) + "...");
               return `https://placehold.co/600x600/fecdd3/e11d48.png?text=${safePrompt}`;
             }
@@ -158,22 +140,10 @@
         };
 
         const UserService = {
-          createUser: async (uid, userData) => {
-            return await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userData.username), {
-              ...userData,
-              currentUid: uid,
-              createdAt: serverTimestamp()
-            });
-          },
-          loginUser: async (uid, username) => {
-            return await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: uid }, { merge: true });
-          },
-          logoutUser: async (username) => {
-            return await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: null }, { merge: true });
-          },
-          updateProfile: async (username, updates) => {
-            return await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), updates);
-          }
+          createUser: async (uid, userData) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userData.username), { ...userData, currentUid: uid, createdAt: serverTimestamp() }),
+          loginUser: async (uid, username) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: uid }, { merge: true }),
+          logoutUser: async (username) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: null }, { merge: true }),
+          updateProfile: async (username, updates) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), updates)
         };
 
         const RelationshipService = {
@@ -182,15 +152,9 @@
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', senderUsername), { sentRequests: arrayUnion(targetUsername) });
           },
           acceptRequest: async (user1Username, user2Username) => {
-            const relRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'relationships'), {
-              user1Id: user1Username, user2Id: user2Username, status: 'active', createdAt: serverTimestamp()
-            });
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user1Username), { 
-              partnerId: user2Username, relationshipId: relRef.id, pendingRequests: [], sentRequests: [] 
-            });
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user2Username), { 
-              partnerId: user1Username, relationshipId: relRef.id, pendingRequests: [], sentRequests: [] 
-            });
+            const relRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'relationships'), { user1Id: user1Username, user2Id: user2Username, status: 'active', createdAt: serverTimestamp() });
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user1Username), { partnerId: user2Username, relationshipId: relRef.id, pendingRequests: [], sentRequests: [] });
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user2Username), { partnerId: user1Username, relationshipId: relRef.id, pendingRequests: [], sentRequests: [] });
           },
           rejectRequest: async (user1Username, user2Username) => {
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user1Username), { pendingRequests: arrayRemove(user2Username) });
@@ -204,17 +168,13 @@
 
         const MessageService = {
           sendMessage: async (relationshipId, senderId, text, type = 'text', imageUrl = null) => {
-            return await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), {
-              relationshipId, senderId, type, text, imageUrl, createdAt: serverTimestamp()
-            });
+            return await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), { relationshipId, senderId, type, text, imageUrl, createdAt: serverTimestamp() });
           }
         };
 
         const MemoryService = {
           createMemory: async (relationshipId, senderId, text, imageUrl, context) => {
-            return await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'memories'), {
-              relationshipId, senderId, text, imageUrl, location: context.location, weather: context.weather, bpm: context.bpm, aiGenerated: true, createdAt: serverTimestamp()
-            });
+            return await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'memories'), { relationshipId, senderId, text, imageUrl, location: context.location, weather: context.weather, bpm: context.bpm, aiGenerated: true, createdAt: serverTimestamp() });
           }
         };
 
@@ -230,16 +190,11 @@
             <text x="145" y="53" fill="#EB4F74" fontSize="24" fontWeight="bold" fontFamily="sans-serif" textAnchor="middle">1</text>
             <line x1="115" y1="15" x2="122" y2="25" stroke="#EB4F74" strokeWidth="4" strokeLinecap="round"/>
             <line x1="102" y1="32" x2="112" y2="35" stroke="#EB4F74" strokeWidth="4" strokeLinecap="round"/>
-            <text x="100" y="180" fontSize="46" fontFamily="'Comic Sans MS', cursive, sans-serif" textAnchor="middle" fontWeight="bold" letterSpacing="1">
-              <tspan fill="#EB4F74">Kevs</tspan><tspan fill="#8B6BB1">A</tspan><tspan fill="#44CDD5">pp</tspan>
-            </text>
+            <text x="100" y="180" fontSize="46" fontFamily="'Comic Sans MS', cursive, sans-serif" textAnchor="middle" fontWeight="bold" letterSpacing="1"><tspan fill="#EB4F74">Kevs</tspan><tspan fill="#8B6BB1">A</tspan><tspan fill="#44CDD5">pp</tspan></text>
           </svg>
         );
 
-        const romanticImages = [
-          "https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=600&q=80",
-          "https://images.unsplash.com/photo-1515934751635-c81c6bc9a2d8?auto=format&fit=crop&w=600&q=80"
-        ];
+        const romanticImages = ["https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1515934751635-c81c6bc9a2d8?auto=format&fit=crop&w=600&q=80"];
 
         // ==========================================
         // 4. MAIN APPLICATION COMPONENT
@@ -261,11 +216,10 @@
           const [activeTab, setActiveTab] = useState('home');
           const [journeyTab, setJourneyTab] = useState('timeline');
           
-          // Veritabanı Listeleri
           const [memories, setMemories] = useState([]);
           const [chatMessages, setChatMessages] = useState([]);
-          const [goals, setGoals] = useState([]); // Yeni Hayaller State'i
-          const [newGoalInput, setNewGoalInput] = useState(''); // Yeni Hayal Input'u
+          const [goals, setGoals] = useState([]); 
+          const [newGoalInput, setNewGoalInput] = useState(''); 
           
           const [isGeneratingMemory, setIsGeneratingMemory] = useState(false);
           const [activeVrRoom, setActiveVrRoom] = useState(null);
@@ -276,7 +230,7 @@
           const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
           const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
           const [isEditingProfile, setIsEditingProfile] = useState(false);
-          const [profileForm, setProfileForm] = useState({ fullName: '', age: '', gender: '' });
+          const [profileForm, setProfileForm] = useState({ name: '', surname: '', birthDate: '', gender: '' });
           
           const [chatInput, setChatInput] = useState('');
           const [searchQuery, setSearchQuery] = useState('');
@@ -284,30 +238,23 @@
           const [isCalling, setIsCalling] = useState(false);
           const [showEmojiPicker, setShowEmojiPicker] = useState(false);
           
+          // Yana kaydırma (Swipe to Reveal Time) state'leri
+          const [chatSwipeOffset, setChatSwipeOffset] = useState(0);
+          const [touchStartX, setTouchStartX] = useState(null);
+          const [touchStartY, setTouchStartY] = useState(null);
+
           const customEmojis = ['💖', '🧸', '💌', '💍', '🥂', '👩‍❤️‍👨', '🥺', '🦋', '🔥', '✨', '🌹', '🍓', '🔒', '💘', '🎁'];
-          
           const chatEndRef = useRef(null);
 
           useEffect(() => {
-            if (!auth) {
-                setIsProfileLoading(false);
-                return;
-            }
+            if (!auth) { setIsProfileLoading(false); return; }
             const initAuth = async () => {
               try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                  try {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                  } catch (tokenError) {
-                    console.warn("Otomatik token kendi veritabanınızla uyuşmadı, anonim girişe geçiliyor...", tokenError.message);
-                    await signInAnonymously(auth);
-                  }
-                } else {
-                  await signInAnonymously(auth);
-                }
-              } catch (e) { 
-                console.error("Giriş hatası", e); 
-              }
+                  try { await signInWithCustomToken(auth, __initial_auth_token); } 
+                  catch (tokenError) { await signInAnonymously(auth); }
+                } else { await signInAnonymously(auth); }
+              } catch (e) { console.error("Giriş hatası", e); }
             };
             initAuth();
             const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -322,12 +269,10 @@
             const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snapshot) => {
               const usersList = snapshot.docs.map(doc => doc.data());
               setAllUsers(usersList);
-              
               const me = usersList.find(u => u.currentUid === user.uid);
               setUserProfile(me || null);
               if (me && me.partnerId) setPartnerProfile(usersList.find(u => u.username === me.partnerId) || null);
               else setPartnerProfile(null);
-              
               setIsProfileLoading(false);
             }, () => setIsProfileLoading(false));
             return () => unsubUsers();
@@ -337,21 +282,18 @@
             if (!user || !db || !userProfile?.relationshipId) return;
             const relationshipId = userProfile.relationshipId;
 
-            // Anılar (Memories) dinleyicisi
             const unsubMemories = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'memories'), (snapshot) => {
               const mms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
                 .filter(m => m.relationshipId === relationshipId).sort((a, b) => b.ts - a.ts);
               setMemories(mms);
             });
 
-            // Mesajlar dinleyicisi
             const unsubMessages = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'messages'), (snapshot) => {
               const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
                 .filter(m => m.relationshipId === relationshipId).sort((a, b) => a.ts - b.ts);
               setChatMessages(msgs);
             });
 
-            // Hayaller/Hedefler (Goals) dinleyicisi
             const unsubGoals = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'goals'), (snapshot) => {
               const gls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), ts: doc.data().createdAt?.toMillis() || Date.now() }))
                 .filter(m => m.relationshipId === relationshipId).sort((a, b) => b.ts - a.ts);
@@ -366,7 +308,9 @@
           }, [chatMessages, activeTab]);
 
           useEffect(() => {
-            if (userProfile) setProfileForm({ fullName: userProfile.fullName || '', age: userProfile.age || '', gender: userProfile.gender || '' });
+            if (userProfile) {
+              setProfileForm({ name: userProfile.name || '', surname: userProfile.surname || '', birthDate: userProfile.birthDate || '', gender: userProfile.gender || '' });
+            }
           }, [userProfile]);
 
           const handleAuthSubmit = async (e) => {
@@ -383,7 +327,7 @@
                 await UserService.createUser(user.uid, {
                   username: usernameKey, email: emailInput.trim(), password: passwordInput,
                   partnerId: null, relationshipId: null, isPublic: true, mbti: 'ENTP',
-                  fullName: '', age: '', gender: '', pendingRequests: [], sentRequests: []
+                  name: '', surname: '', birthDate: '', gender: '', pendingRequests: [], sentRequests: []
                 });
               } else {
                 const targetUser = allUsers.find(u => u.username === usernameKey);
@@ -405,7 +349,6 @@
             setSearchResults(allUsers.filter(u => u.username !== userProfile.username && u.username.includes(searchQuery.toLowerCase().trim()) && !u.partnerId && u.isPublic));
           };
 
-          // Özledim Butonu İşlemi
           const handleMissYouGenerate = async () => {
             if (!user || !userProfile?.relationshipId) return;
             setIsGeneratingMemory(true);
@@ -415,34 +358,39 @@
               const prompt = `Konum ${context.location}, Hava ${context.weather}, Nabız ${context.bpm} BPM. ${userProfile.username}'nin ağzından eşine romantik, 2 cümlelik özlem mesajı yaz.`;
               const aiText = await AIService.generateText(prompt, "Sen romantik bir asistansın.");
               const imageUrl = romanticImages[Math.floor(Math.random() * romanticImages.length)];
+              
               await MemoryService.createMemory(userProfile.relationshipId, userProfile.username, aiText, imageUrl, context);
+              await MessageService.sendMessage(userProfile.relationshipId, 'SYSTEM', `[BİLDİRİM] @${userProfile.username} 'Özledim' butonuna tıkladı! Seni çok özlediğini bilmeni istiyor. 💖`, 'system');
+
               setActiveTab('journey'); setJourneyTab('timeline');
-            } catch (e) { 
-              console.error(e); 
-              alert("Hata oluştu. İnternet bağlantınızı kontrol edin."); 
-            }
+              alert("Partnerinize onu özlediğinize dair bildirim başarıyla gönderildi!");
+            } catch (e) { console.error(e); alert("Hata oluştu. İnternet bağlantınızı kontrol edin."); }
             finally { setIsGeneratingMemory(false); }
           };
 
-          // Yeni Hayal Ekleme İşlemi
           const handleAddGoal = async (e) => {
             e.preventDefault();
             if (!newGoalInput.trim() || !userProfile?.relationshipId) return;
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goals'), {
-              relationshipId: userProfile.relationshipId,
-              text: newGoalInput.trim(),
-              isCompleted: false,
-              createdAt: serverTimestamp()
+              relationshipId: userProfile.relationshipId, text: newGoalInput.trim(), isCompleted: false, createdAt: serverTimestamp()
             });
             setNewGoalInput('');
           };
 
-          // Hayali Tamamlandı Olarak İşaretleme İşlemi
+          // HEDEF SİLME (Delete Goal) FONKSİYONU
+          const handleDeleteGoal = async (goalId, e) => {
+            e.stopPropagation(); // Tiklamanın tamamlandı olayını tetiklemesini engelle
+            if (!userProfile?.relationshipId) return;
+            try {
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goalId));
+            } catch (err) {
+              console.error("Silme hatası:", err);
+            }
+          };
+
           const toggleGoal = async (goal) => {
             if (!goal || !goal.id) return;
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goal.id), {
-              isCompleted: !goal.isCompleted
-            });
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goal.id), { isCompleted: !goal.isCompleted });
           };
 
           const handleSendMessage = async (e) => {
@@ -454,11 +402,7 @@
 
           const handleAiMediation = async () => {
             if (!userProfile?.relationshipId) return;
-            await MessageService.sendMessage(
-              userProfile.relationshipId, 'AI_COACH', 
-              `[AŞK KOÇU] Görünüşe göre iletişimde tansiyon artıyor. Her ikinize de 10 dakikalık bir mola öneriyorum. 🧘‍♀️🎵`, 
-              'system'
-            );
+            await MessageService.sendMessage(userProfile.relationshipId, 'AI_COACH', `[AŞK KOÇU] Görünüşe göre iletişimde tansiyon artıyor. Her ikinize de 10 dakikalık bir mola öneriyorum. 🧘‍♀️🎵`, 'system');
           };
 
           const handleFileUpload = (e) => {
@@ -484,10 +428,7 @@
             try {
               const url = await AIService.generateImage(aiPhotoPrompt);
               setPhotoPreviewUrl(url);
-            } catch (error) { 
-              console.error(error);
-              alert("Görsel oluşturulamadı."); 
-            } 
+            } catch (error) { console.error(error); alert("Görsel oluşturulamadı."); } 
             finally { setIsGeneratingPhoto(false); }
           };
 
@@ -503,16 +444,54 @@
             alert(`${item} başarıyla gönderildi.`);
           };
 
+          const getDisplayName = (profile) => {
+            if (!profile) return '';
+            if (profile.name || profile.surname) return `${profile.name || ''} ${profile.surname || ''}`.trim();
+            return `@${profile.username}`;
+          };
+
+          // TARİH FORMATLAMA FONKSİYONU
+          const formatChatDate = (timestamp) => {
+            const date = new Date(timestamp);
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            if (date.toDateString() === today.toDateString()) return 'Bugün';
+            if (date.toDateString() === yesterday.toDateString()) return 'Dün';
+            
+            return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+          };
+
+          // SOHBET KAYDIRMA (SWIPE) İŞLEMLERİ
+          const handleChatTouchStart = (e) => {
+            setTouchStartX(e.touches[0].clientX);
+            setTouchStartY(e.touches[0].clientY);
+          };
+          const handleChatTouchMove = (e) => {
+            if (touchStartX === null || touchStartY === null) return;
+            const deltaX = e.touches[0].clientX - touchStartX;
+            const deltaY = e.touches[0].clientY - touchStartY;
+            // Sadece yatay kaydırmayı dikkate al (Dikey scrollu bozmamak için)
+            if (Math.abs(deltaX) > Math.abs(deltaY) && deltaX < 0 && deltaX > -60) {
+                setChatSwipeOffset(deltaX);
+            }
+          };
+          const handleChatTouchEnd = () => {
+            setTouchStartX(null);
+            setTouchStartY(null);
+            // Kaydırma bitince mesajları eski yerine animasyonla döndür
+            setChatSwipeOffset(0);
+          };
+
           if (initErrorMsg) {
             return (
               <div className="min-h-[100dvh] bg-slate-50 flex items-center justify-center font-sans p-4 text-slate-900">
                  <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl text-center">
                    <AppLogo className="w-24 h-24 mx-auto mb-6" />
                    <h2 className="text-xl font-bold mb-2 text-rose-600">Veritabanı Hatası ⚠️</h2>
-                   <p className="text-sm text-slate-600 mb-6">Firebase bağlanırken bir hata oluştu. Lütfen bilgilerinizi kontrol edin.</p>
-                   <div className="bg-rose-50 text-rose-600 text-xs p-4 rounded-xl text-left border border-rose-100 break-words">
-                     {initErrorMsg}
-                   </div>
+                   <p className="text-sm text-slate-600 mb-6">Firebase bağlanırken bir hata oluştu.</p>
+                   <div className="bg-rose-50 text-rose-600 text-xs p-4 rounded-xl text-left border border-rose-100 break-words">{initErrorMsg}</div>
                  </div>
               </div>
             );
@@ -534,28 +513,18 @@
                   </div>
                   <form onSubmit={handleAuthSubmit} className="space-y-4">
                     {authMode === 'register' && (
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">E-Posta</label>
-                        <input type="email" required value={emailInput} onChange={e=>setEmailInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all" placeholder="ornek@mail.com" />
-                      </div>
+                      <div><label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">E-Posta</label><input type="email" required value={emailInput} onChange={e=>setEmailInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none" placeholder="ornek@mail.com" /></div>
                     )}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">Kullanıcı Adı</label>
-                      <input type="text" required value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all" placeholder="Kullanıcı adınız" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">Şifre</label>
-                      <input type="password" required value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all" placeholder="••••••••" />
-                    </div>
+                    <div><label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">Kullanıcı Adı</label><input type="text" required value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none" placeholder="Kullanıcı adınız" /></div>
+                    <div><label className="block text-xs font-semibold text-slate-600 mb-1 ml-1">Şifre</label><input type="password" required value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} className="w-full bg-slate-50/50 rounded-2xl px-4 py-3 text-sm border border-slate-200 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none" placeholder="••••••••" /></div>
                     {authError && <p className="text-rose-500 text-xs text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-medium animate-in fade-in">{authError}</p>}
-                    <button disabled={isAuthLoading} className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center transition-all shadow-lg shadow-rose-500/30 hover:shadow-rose-500/50 mt-2">
+                    <button disabled={isAuthLoading} className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/30 hover:shadow-rose-500/50 mt-2">
                       {isAuthLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (authMode === 'login' ? 'Giriş Yap' : 'Kayıt Ol')}
                     </button>
                   </form>
                   <div className="mt-6 text-center">
-                    <button onClick={()=>{setAuthMode(authMode==='login'?'register':'login');setAuthError('');}} className="text-sm font-medium text-slate-500 hover:text-rose-600 transition-colors">
-                      {authMode === 'login' ? 'Hesabınız yok mu? ' : 'Zaten hesabınız var mı? '}
-                      <span className="font-bold underline decoration-2 underline-offset-4">{authMode === 'login' ? 'Kayıt Olun' : 'Giriş Yapın'}</span>
+                    <button onClick={()=>{setAuthMode(authMode==='login'?'register':'login');setAuthError('');}} className="text-sm font-medium text-slate-500 hover:text-rose-600">
+                      {authMode === 'login' ? 'Hesabınız yok mu? ' : 'Zaten hesabınız var mı? '}<span className="font-bold underline decoration-2 underline-offset-4">{authMode === 'login' ? 'Kayıt Olun' : 'Giriş Yapın'}</span>
                     </button>
                   </div>
                 </div>
@@ -635,7 +604,6 @@
                   </div>
                 )}
                 
-                {/* YENİLENMİŞ DİNAMİK HEDEFLER/HAYALLER SİSTEMİ */}
                 {journeyTab === 'board' && (
                   <div className="flex flex-col h-full">
                     <form onSubmit={handleAddGoal} className="flex gap-2 mb-4">
@@ -648,8 +616,12 @@
                         <h3 className="font-bold text-[11px] mb-3 text-slate-600 uppercase tracking-wider sticky top-0 bg-slate-100/90 py-1">Yapılacaklar</h3>
                         <div className="space-y-2">
                           {goals.filter(g => !g.isCompleted).map(g => (
-                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-rose-500 cursor-pointer hover:bg-slate-50 transition-colors">
-                              {g.text}
+                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-rose-500 cursor-pointer hover:bg-slate-50 transition-colors flex justify-between items-center group">
+                              <span className="flex-1">{g.text}</span>
+                              {/* SİLME BUTONU EKLENDİ */}
+                              <button onClick={(e) => handleDeleteGoal(g.id, e)} className="text-slate-300 hover:text-rose-500 transition-colors p-1 ml-1">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           ))}
                           {goals.filter(g => !g.isCompleted).length === 0 && <p className="text-[10px] text-slate-400 text-center py-4">Liste boş</p>}
@@ -660,8 +632,12 @@
                         <h3 className="font-bold text-[11px] mb-3 text-green-700 uppercase tracking-wider sticky top-0 bg-green-100/90 py-1">Tamamlananlar</h3>
                         <div className="space-y-2">
                           {goals.filter(g => g.isCompleted).map(g => (
-                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-green-500 opacity-60 line-through cursor-pointer hover:bg-slate-50 transition-colors">
-                              {g.text}
+                            <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-green-500 opacity-60 cursor-pointer hover:bg-slate-50 transition-colors flex justify-between items-center group">
+                              <span className="line-through flex-1">{g.text}</span>
+                              {/* SİLME BUTONU EKLENDİ */}
+                              <button onClick={(e) => handleDeleteGoal(g.id, e)} className="text-slate-400 hover:text-rose-500 transition-colors p-1 ml-1 opacity-100">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           ))}
                            {goals.filter(g => g.isCompleted).length === 0 && <p className="text-[10px] text-slate-400 text-center py-4">Henüz tamamlanan yok</p>}
@@ -712,52 +688,87 @@
             </div>
           );
 
+          // SOHBET EKRANI (Mesaj Hizalamaları, Tarih ve Yana Kaydırarak Saat Gösterme)
           const renderChatView = () => (
-            <div className="flex flex-col h-full bg-slate-50 relative pb-20">
+            <div className="flex flex-col h-full bg-slate-50 relative pb-20 overflow-hidden">
               <div className="bg-white p-3 border-b border-slate-200 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
-                <div className="flex items-center"><div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mr-3 font-bold uppercase">{partnerProfile?.username?.charAt(0)}</div><div><h2 className="text-md font-bold leading-tight">{partnerProfile?.fullName || `@${partnerProfile?.username}`}</h2><span className="text-[10px] text-green-600">Çevrimiçi</span></div></div>
+                <div className="flex items-center"><div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mr-3 font-bold uppercase">{partnerProfile?.username?.charAt(0)}</div><div><h2 className="text-md font-bold leading-tight">{getDisplayName(partnerProfile)}</h2><span className="text-[10px] text-green-600">Çevrimiçi</span></div></div>
                 <div className="flex gap-2"><button onClick={handleAiMediation} className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center"><Brain className="w-4 h-4" /></button><button onClick={() => setIsCalling(true)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center"><Phone className="w-4 h-4" /></button></div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {chatMessages.map((msg) => {
-                  if (msg.isSystem) return <div key={msg.id} className="w-full text-center text-xs font-bold text-slate-500 bg-slate-200/50 p-2 rounded-lg">{msg.text}</div>
+              
+              {/* Dokunma/Kaydırma (Swipe) Olaylarını Dinleyen Konteyner */}
+              <div 
+                className="flex-1 overflow-y-auto p-4 space-y-4 relative"
+                onTouchStart={handleChatTouchStart}
+                onTouchMove={handleChatTouchMove}
+                onTouchEnd={handleChatTouchEnd}
+              >
+                {chatMessages.map((msg, index) => {
                   const isMe = msg.senderId === userProfile.username;
+                  
+                  // Tarih Gruplama Mantığı
+                  const currentMsgDate = new Date(msg.ts).toDateString();
+                  const prevMsgDate = index > 0 ? new Date(chatMessages[index - 1].ts).toDateString() : null;
+                  const showDateHeader = currentMsgDate !== prevMsgDate;
+                  
+                  const messageTime = new Date(msg.ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+
                   return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] rounded-2xl p-3 text-sm shadow-sm flex flex-col ${isMe ? 'bg-rose-500 text-white rounded-br-none' : 'bg-white border text-slate-700 rounded-bl-none'}`}>
-                        {msg.imageUrl && <img src={msg.imageUrl} className="w-full rounded-xl mb-2 max-h-48 object-cover" />}
-                        <span>{msg.text}</span>
-                      </div>
-                    </div>
+                    <React.Fragment key={msg.id}>
+                      {/* Tarih Ayracı */}
+                      {showDateHeader && (
+                        <div className="flex justify-center my-4">
+                           <span className="bg-slate-200/80 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                             {formatChatDate(msg.ts)}
+                           </span>
+                        </div>
+                      )}
+
+                      {/* Sistem Mesajları (Ortada) */}
+                      {msg.isSystem ? (
+                        <div className="w-full text-center text-[11px] font-bold text-slate-500 bg-slate-200/50 p-2 rounded-xl">{msg.text}</div>
+                      ) : (
+                        /* Kullanıcı Mesajları (Senin -> Sağ, Onun -> Sol) */
+                        <div className={`flex relative w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
+                          
+                          {/* Kaydırma ile animasyonlu hareket eden mesaj balonu */}
+                          <div 
+                            style={{ transform: `translateX(${chatSwipeOffset}px)` }} 
+                            className={`max-w-[75%] rounded-2xl p-3 text-sm shadow-sm flex flex-col transition-transform duration-100 ease-out z-10 ${isMe ? 'bg-rose-500 text-white rounded-br-sm' : 'bg-white border border-slate-100 text-slate-800 rounded-bl-sm'}`}
+                          >
+                            {msg.imageUrl && <img src={msg.imageUrl} className="w-full rounded-xl mb-2 max-h-48 object-cover" />}
+                            <span className="leading-snug">{msg.text}</span>
+                          </div>
+
+                          {/* Gizli Saat (Kaydırınca Ekranın Sağından Ortaya Çıkar) */}
+                          <div 
+                            className="absolute right-[-45px] top-1/2 -translate-y-1/2 text-[11px] font-medium text-slate-400 transition-all duration-100"
+                            style={{ 
+                              transform: `translateX(${chatSwipeOffset}px)`, 
+                              opacity: chatSwipeOffset < -20 ? 1 : 0 
+                            }}
+                          >
+                            {messageTime}
+                          </div>
+                        </div>
+                      )}
+                    </React.Fragment>
                   );
                 })}
                 <div ref={chatEndRef} />
               </div>
-              <div className="bg-white border-t border-slate-200 p-3 flex-shrink-0 relative">
+              <div className="bg-white border-t border-slate-200 p-3 flex-shrink-0 relative z-20">
                 {showEmojiPicker && (
                   <div className="absolute bottom-16 left-3 bg-white border border-slate-200 shadow-lg rounded-2xl p-3 flex flex-wrap gap-2 w-64 z-50 animate-in fade-in slide-in-from-bottom-2">
                     {customEmojis.map(emoji => (
-                      <button 
-                        key={emoji} 
-                        type="button" 
-                        onClick={() => { setChatInput(prev => prev + emoji); setShowEmojiPicker(false); }}
-                        className="text-2xl hover:scale-125 transition-transform"
-                      >
-                        {emoji}
-                      </button>
+                      <button key={emoji} type="button" onClick={() => { setChatInput(prev => prev + emoji); setShowEmojiPicker(false); }} className="text-2xl hover:scale-125 transition-transform">{emoji}</button>
                     ))}
                   </div>
                 )}
                 <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
-                    className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0"
-                  >
-                    <Smile className="w-6 h-6" />
-                  </button>
-                  <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Mesaj yaz..." className="flex-1 bg-slate-100 rounded-full px-4 py-3 text-sm outline-none" />
-                  <button type="submit" disabled={!chatInput.trim()} className="w-12 h-12 bg-rose-500 rounded-full flex items-center justify-center text-white disabled:bg-slate-300 transition-colors flex-shrink-0"><Send className="w-5 h-5 ml-1" /></button>
+                  <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0"><Smile className="w-6 h-6" /></button>
+                  <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Mesaj yaz..." className="flex-1 bg-slate-100 rounded-full px-4 py-3 text-sm outline-none border-none focus:ring-2 focus:ring-rose-200 transition-all" />
+                  <button type="submit" disabled={!chatInput.trim()} className="w-11 h-11 bg-rose-500 rounded-full flex items-center justify-center text-white disabled:bg-slate-300 transition-colors flex-shrink-0 shadow-md hover:bg-rose-600"><Send className="w-5 h-5 ml-0.5" /></button>
                 </form>
               </div>
             </div>
@@ -772,15 +783,31 @@
                   <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center border-4 border-white shadow-lg text-4xl uppercase font-bold text-slate-300 mb-3">{userProfile?.username?.charAt(0)}</div>
                   {!isEditingProfile ? (
                     <div className="text-center w-full">
-                      <h3 className="text-2xl font-bold">{userProfile?.fullName || `@${userProfile?.username}`}</h3>
-                      {userProfile?.fullName && <p className="text-rose-500 font-medium text-sm mb-1">@{userProfile?.username}</p>}
+                      <h3 className="text-2xl font-bold">{getDisplayName(userProfile)}</h3>
+                      {(userProfile?.name || userProfile?.surname) && <p className="text-rose-500 font-medium text-sm mb-1">@{userProfile?.username}</p>}
                       <div className="flex flex-wrap justify-center gap-2 mt-2 mb-4"><div className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full flex items-center"><Brain className="w-3 h-3 mr-1"/> {userProfile?.mbti || 'ENTP'}</div></div>
-                      <button onClick={() => { setIsEditingProfile(true); setProfileForm({fullName: userProfile.fullName||'', age: userProfile.age||'', gender: userProfile.gender||''}); }} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center"><Edit className="w-4 h-4 mr-2" /> Profili Düzenle</button>
+                      
+                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 w-full text-left text-sm text-slate-600 grid grid-cols-2 gap-2">
+                        <div><strong>Doğum:</strong> {userProfile?.birthDate ? new Date(userProfile.birthDate).toLocaleDateString() : '-'}</div>
+                        <div><strong>Cinsiyet:</strong> {userProfile?.gender || '-'}</div>
+                      </div>
+
+                      <button onClick={() => setIsEditingProfile(true)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center"><Edit className="w-4 h-4 mr-2" /> Profili Düzenle</button>
                     </div>
                   ) : (
-                    <form onSubmit={async (e) => { e.preventDefault(); await UserService.updateProfile(userProfile.username, profileForm); setIsEditingProfile(false); }} className="w-full mt-4 space-y-3 bg-white p-4 rounded-2xl shadow-sm border">
-                      <div><label className="block text-xs font-semibold text-slate-600 mb-1">Ad Soyad</label><input type="text" value={profileForm.fullName} onChange={e => setProfileForm({...profileForm, fullName: e.target.value})} className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border outline-none" /></div>
-                      <div className="flex gap-2 pt-2"><button type="button" onClick={() => setIsEditingProfile(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-sm font-bold">İptal</button><button type="submit" className="flex-1 py-2 bg-rose-500 text-white rounded-lg text-sm font-bold">Kaydet</button></div>
+                    <form onSubmit={async (e) => { e.preventDefault(); await UserService.updateProfile(userProfile.username, profileForm); setIsEditingProfile(false); }} className="w-full mt-4 space-y-3 bg-white p-4 rounded-2xl shadow-sm border text-left">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><label className="block text-xs font-semibold text-slate-600 mb-1">Ad</label><input type="text" value={profileForm.name} onChange={e => setProfileForm({...profileForm, name: e.target.value})} className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border outline-none" required placeholder="Adınız" /></div>
+                        <div><label className="block text-xs font-semibold text-slate-600 mb-1">Soyad</label><input type="text" value={profileForm.surname} onChange={e => setProfileForm({...profileForm, surname: e.target.value})} className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border outline-none" required placeholder="Soyadınız" /></div>
+                      </div>
+                      <div><label className="block text-xs font-semibold text-slate-600 mb-1">Doğum Tarihi</label><input type="date" value={profileForm.birthDate} onChange={e => setProfileForm({...profileForm, birthDate: e.target.value})} className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border outline-none text-slate-700" /></div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Cinsiyet</label>
+                        <select value={profileForm.gender} onChange={e => setProfileForm({...profileForm, gender: e.target.value})} className="w-full bg-slate-50 rounded-lg px-3 py-2 text-sm border outline-none text-slate-700">
+                          <option value="">Seçiniz</option><option value="Kadın">Kadın</option><option value="Erkek">Erkek</option><option value="Diğer">Diğer</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-2 pt-2"><button type="button" onClick={() => setIsEditingProfile(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-sm font-bold text-slate-600">İptal</button><button type="submit" className="flex-1 py-2 bg-rose-500 text-white rounded-lg text-sm font-bold">Kaydet</button></div>
                     </form>
                   )}
                 </div>
@@ -827,13 +854,8 @@
           );
         }
 
-        // Uygulamayı HTML içerisine Kalkan (ErrorBoundary) ile birlikte render et
         const root = createRoot(document.getElementById('root'));
-        root.render(
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
-        );
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
 </body>
 </html>
