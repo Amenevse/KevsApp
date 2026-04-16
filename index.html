@@ -33,7 +33,7 @@
         import { createRoot } from 'react-dom/client';
         // Yeni özellikler için Trash2 ikonunu da ekliyoruz
         import { 
-          Heart, Clock, MessageCircle, User, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, Layout, Sparkles, Coffee, ImagePlus, Wand, Brain, Edit, Upload, Smile, Gamepad, Trash2
+          Heart, Clock, MessageCircle, User, Activity, Send, Loader2, Search, Phone, LogOut, X, PhoneOff, UserPlus, Check, Bell, Eye, EyeOff, Map, Layout, Sparkles, Coffee, ImagePlus, Wand, Brain, Edit, Upload, Smile, Gamepad, Trash2, Shield
         } from 'lucide-react';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithCustomToken, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
@@ -143,7 +143,9 @@
           createUser: async (uid, userData) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userData.username), { ...userData, currentUid: uid, createdAt: serverTimestamp() }),
           loginUser: async (uid, username) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: uid }, { merge: true }),
           logoutUser: async (username) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), { currentUid: null }, { merge: true }),
-          updateProfile: async (username, updates) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), updates)
+          updateProfile: async (username, updates) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username), updates),
+          deleteUser: async (username) => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', username)),
+          adminCreateUser: async (userData) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userData.username), { ...userData, currentUid: null, createdAt: serverTimestamp() })
         };
 
         const RelationshipService = {
@@ -220,6 +222,7 @@
           const [chatMessages, setChatMessages] = useState([]);
           const [goals, setGoals] = useState([]); 
           const [newGoalInput, setNewGoalInput] = useState(''); 
+          const [newMemoryInput, setNewMemoryInput] = useState(''); // Yeni anı ekleme input'u
           
           const [isGeneratingMemory, setIsGeneratingMemory] = useState(false);
           const [activeVrRoom, setActiveVrRoom] = useState(null);
@@ -232,6 +235,11 @@
           const [isEditingProfile, setIsEditingProfile] = useState(false);
           const [profileForm, setProfileForm] = useState({ name: '', surname: '', birthDate: '', gender: '' });
           
+          // Admin Panel States
+          const [adminForm, setAdminForm] = useState({ username: '', email: '', password: '' });
+          const [adminMessage, setAdminMessage] = useState(null);
+          const [deleteTarget, setDeleteTarget] = useState(null);
+
           const [chatInput, setChatInput] = useState('');
           const [searchQuery, setSearchQuery] = useState('');
           const [searchResults, setSearchResults] = useState([]);
@@ -370,6 +378,7 @@
             finally { setIsGeneratingMemory(false); }
           };
 
+          // HEDEF / HAYAL İŞLEMLERİ
           const handleAddGoal = async (e) => {
             e.preventDefault();
             if (!newGoalInput.trim() || !userProfile?.relationshipId) return;
@@ -379,9 +388,8 @@
             setNewGoalInput('');
           };
 
-          // HEDEF SİLME (Delete Goal) FONKSİYONU
           const handleDeleteGoal = async (goalId, e) => {
-            e.stopPropagation(); // Tiklamanın tamamlandı olayını tetiklemesini engelle
+            e.stopPropagation(); 
             if (!userProfile?.relationshipId) return;
             try {
               await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goalId));
@@ -395,6 +403,30 @@
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goals', goal.id), { isCompleted: !goal.isCompleted });
           };
 
+          // MANUEL ANI İŞLEMLERİ
+          const handleAddManualMemory = async (e) => {
+            e.preventDefault();
+            if (!newMemoryInput.trim() || !userProfile?.relationshipId) return;
+            
+            const context = { bpm: '-', weather: "Manuel Eklendi", location: "KevsApp" };
+            // Manuel eklenen anılar için görsel arayüzü bozmamak adına rastgele romantik görsel veya standart görsel kullanıyoruz
+            const imageUrl = romanticImages[Math.floor(Math.random() * romanticImages.length)];
+            
+            await MemoryService.createMemory(userProfile.relationshipId, userProfile.username, newMemoryInput.trim(), imageUrl, context);
+            setNewMemoryInput('');
+          };
+
+          const handleDeleteMemory = async (memoryId, e) => {
+            e.stopPropagation();
+            if (!userProfile?.relationshipId) return;
+            try {
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'memories', memoryId));
+            } catch (err) {
+              console.error("Anı silme hatası:", err);
+            }
+          };
+
+          // DİĞER İŞLEMLER
           const handleSendMessage = async (e) => {
             e.preventDefault();
             if (!chatInput.trim() || !userProfile?.relationshipId) return;
@@ -450,6 +482,39 @@
             if (!profile) return '';
             if (profile.name || profile.surname) return `${profile.name || ''} ${profile.surname || ''}`.trim();
             return `@${profile.username}`;
+          };
+
+          // Admin Yetki Kontrolü (Sadece 'admin' kullanıcı adına sahip kişi görebilir)
+          const isAdmin = userProfile?.username === 'admin';
+
+          const handleAdminAddUser = async (e) => {
+            e.preventDefault();
+            const usernameKey = adminForm.username.toLowerCase().trim();
+            if (allUsers.find(u => u.username === usernameKey)) {
+              setAdminMessage("Bu kullanıcı adı zaten sistemde mevcut.");
+              setTimeout(() => setAdminMessage(null), 3000);
+              return;
+            }
+            await UserService.adminCreateUser({
+              username: usernameKey, email: adminForm.email.trim(), password: adminForm.password,
+              partnerId: null, relationshipId: null, isPublic: true, mbti: 'ENTP',
+              name: '', surname: '', birthDate: '', gender: '', pendingRequests: [], sentRequests: []
+            });
+            setAdminForm({ username: '', email: '', password: '' });
+            setAdminMessage("Kullanıcı başarıyla oluşturuldu!");
+            setTimeout(() => setAdminMessage(null), 3000);
+          };
+
+          const confirmDeleteUser = async () => {
+            if (!deleteTarget) return;
+            const userToDelete = allUsers.find(u => u.username === deleteTarget);
+            if (userToDelete && userToDelete.partnerId) {
+               await RelationshipService.disconnect(deleteTarget, userToDelete.partnerId);
+            }
+            await UserService.deleteUser(deleteTarget);
+            setDeleteTarget(null);
+            setAdminMessage(`@${deleteTarget} başarıyla silindi.`);
+            setTimeout(() => setAdminMessage(null), 3000);
           };
 
           // TARİH FORMATLAMA FONKSİYONU
@@ -607,32 +672,44 @@
               </div>
               <div className="flex-1 overflow-y-auto p-4 flex flex-col">
                 {journeyTab === 'timeline' && (
-                  <div className="space-y-6">
-                    {memories.map(memory => (
-                      <div key={memory.id} className="bg-white rounded-3xl shadow-sm overflow-hidden">
-                        <div className="h-40 relative"><img src={memory.imageUrl} className="w-full h-full object-cover" /><div className="absolute top-3 left-3 bg-white/90 px-2 py-1 rounded-full text-[10px] font-bold shadow flex items-center"><Clock className="w-3 h-3 mr-1"/> {new Date(memory.ts).toLocaleDateString()}</div></div>
-                        <div className="p-4"><p className="text-sm italic text-slate-700">"{memory.text}"</p></div>
-                      </div>
-                    ))}
-                    {memories.length === 0 && <p className="text-center text-slate-400 mt-10 text-sm">Henüz bir anı oluşturmadınız. İlk anınızı yaratmak için "Özledim" butonuna basın!</p>}
+                  <div className="flex flex-col h-full">
+                    {/* YENİ ANI EKLEME KISMI */}
+                    <form onSubmit={handleAddManualMemory} className="flex gap-2 mb-6 flex-shrink-0">
+                      <input type="text" value={newMemoryInput} onChange={e=>setNewMemoryInput(e.target.value)} placeholder="Yeni bir anı yaz..." className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                      <button type="submit" disabled={!newMemoryInput.trim()} className="bg-rose-500 text-white px-4 rounded-xl font-bold text-xl disabled:bg-rose-300">+</button>
+                    </form>
+                    
+                    <div className="space-y-6 overflow-y-auto pb-4">
+                      {memories.map(memory => (
+                        <div key={memory.id} className="bg-white rounded-3xl shadow-sm overflow-hidden relative group">
+                          {/* ANI SİLME BUTONU */}
+                          <button onClick={(e) => handleDeleteMemory(memory.id, e)} className="absolute top-3 right-3 bg-white/90 text-slate-400 hover:text-rose-500 p-2 rounded-full shadow z-10 transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          
+                          <div className="h-40 relative"><img src={memory.imageUrl} className="w-full h-full object-cover" /><div className="absolute top-3 left-3 bg-white/90 px-2 py-1 rounded-full text-[10px] font-bold shadow flex items-center"><Clock className="w-3 h-3 mr-1"/> {new Date(memory.ts).toLocaleDateString()}</div></div>
+                          <div className="p-4"><p className="text-sm italic text-slate-700">"{memory.text}"</p></div>
+                        </div>
+                      ))}
+                      {memories.length === 0 && <p className="text-center text-slate-400 mt-10 text-sm">Henüz bir anı oluşturmadınız.</p>}
+                    </div>
                   </div>
                 )}
                 
                 {journeyTab === 'board' && (
                   <div className="flex flex-col h-full">
-                    <form onSubmit={handleAddGoal} className="flex gap-2 mb-4">
+                    <form onSubmit={handleAddGoal} className="flex gap-2 mb-4 flex-shrink-0">
                       <input type="text" value={newGoalInput} onChange={e=>setNewGoalInput(e.target.value)} placeholder="Yeni bir hayal veya hedef ekle..." className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
                       <button type="submit" disabled={!newGoalInput.trim()} className="bg-rose-500 text-white px-4 rounded-xl font-bold text-xl disabled:bg-rose-300">+</button>
                     </form>
                     
                     <div className="grid grid-cols-2 gap-4 flex-1">
                       <div className="bg-slate-200/50 rounded-2xl p-3 flex flex-col max-h-[60vh] overflow-y-auto">
-                        <h3 className="font-bold text-[11px] mb-3 text-slate-600 uppercase tracking-wider sticky top-0 bg-slate-100/90 py-1">Yapılacaklar</h3>
+                        <h3 className="font-bold text-[11px] mb-3 text-slate-600 uppercase tracking-wider sticky top-0 bg-slate-100/90 py-1 z-10">Yapılacaklar</h3>
                         <div className="space-y-2">
                           {goals.filter(g => !g.isCompleted).map(g => (
                             <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-rose-500 cursor-pointer hover:bg-slate-50 transition-colors flex justify-between items-center group">
                               <span className="flex-1">{g.text}</span>
-                              {/* SİLME BUTONU EKLENDİ */}
                               <button onClick={(e) => handleDeleteGoal(g.id, e)} className="text-slate-300 hover:text-rose-500 transition-colors p-1 ml-1">
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -643,12 +720,11 @@
                       </div>
                       
                       <div className="bg-green-100/50 rounded-2xl p-3 flex flex-col max-h-[60vh] overflow-y-auto">
-                        <h3 className="font-bold text-[11px] mb-3 text-green-700 uppercase tracking-wider sticky top-0 bg-green-100/90 py-1">Tamamlananlar</h3>
+                        <h3 className="font-bold text-[11px] mb-3 text-green-700 uppercase tracking-wider sticky top-0 bg-green-100/90 py-1 z-10">Tamamlananlar</h3>
                         <div className="space-y-2">
                           {goals.filter(g => g.isCompleted).map(g => (
                             <div key={g.id} onClick={() => toggleGoal(g)} className="bg-white p-3 rounded-xl shadow-sm text-xs border-l-4 border-green-500 opacity-60 cursor-pointer hover:bg-slate-50 transition-colors flex justify-between items-center group">
                               <span className="line-through flex-1">{g.text}</span>
-                              {/* SİLME BUTONU EKLENDİ */}
                               <button onClick={(e) => handleDeleteGoal(g.id, e)} className="text-slate-400 hover:text-rose-500 transition-colors p-1 ml-1 opacity-100">
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -702,7 +778,7 @@
             </div>
           );
 
-          // SOHBET EKRANI (Mesaj Hizalamaları, Tarih ve Yana Kaydırarak Saat Gösterme)
+          // SOHBET EKRANI
           const renderChatView = () => (
             <div className="flex flex-col h-full bg-slate-50 relative pb-20 overflow-hidden">
               <div className="bg-white p-3 border-b border-slate-200 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
@@ -710,7 +786,6 @@
                 <div className="flex gap-2"><button onClick={handleAiMediation} className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center"><Brain className="w-4 h-4" /></button><button onClick={() => setIsCalling(true)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center"><Phone className="w-4 h-4" /></button></div>
               </div>
               
-              {/* Dokunma/Kaydırma (Swipe) Olaylarını Dinleyen Konteyner */}
               <div 
                 className="flex-1 overflow-y-auto p-4 space-y-4 relative overflow-x-hidden select-none"
                 onTouchStart={(e) => handleChatPointerDown(e.touches[0].clientX)}
@@ -724,7 +799,6 @@
                 {chatMessages.map((msg, index) => {
                   const isMe = msg.senderId === userProfile.username;
                   
-                  // Tarih Gruplama Mantığı
                   const currentMsgDate = new Date(msg.ts).toDateString();
                   const prevMsgDate = index > 0 ? new Date(chatMessages[index - 1].ts).toDateString() : null;
                   const showDateHeader = currentMsgDate !== prevMsgDate;
@@ -733,7 +807,6 @@
 
                   return (
                     <React.Fragment key={msg.id}>
-                      {/* Tarih Ayracı */}
                       {showDateHeader && (
                         <div className="flex justify-center my-4">
                            <span className="bg-slate-200/80 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
@@ -742,14 +815,10 @@
                         </div>
                       )}
 
-                      {/* Sistem Mesajları (Ortada) */}
                       {msg.isSystem ? (
                         <div className="w-full text-center text-[11px] font-bold text-slate-500 bg-slate-200/50 p-2 rounded-xl">{msg.text}</div>
                       ) : (
-                        /* Kullanıcı Mesajları (Senin -> Sağ, Onun -> Sol) */
                         <div className={`flex relative w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-                          
-                          {/* Kaydırma ile animasyonlu hareket eden mesaj balonu */}
                           <div 
                             style={{ transform: `translateX(${chatSwipeOffset}px)` }} 
                             className={`max-w-[75%] rounded-2xl p-3 text-sm shadow-sm flex flex-col z-10 ${isDragging ? 'transition-none' : 'transition-transform duration-200 ease-out'} ${isMe ? 'bg-rose-500 text-white rounded-br-sm' : 'bg-white border border-slate-100 text-slate-800 rounded-bl-sm'}`}
@@ -758,7 +827,6 @@
                             <span className="leading-snug">{msg.text}</span>
                           </div>
 
-                          {/* Gizli Saat (Kaydırınca Ekranın Sağından Ortaya Çıkar) */}
                           <div 
                             className="absolute right-[-45px] top-1/2 -translate-y-1/2 text-[11px] font-medium text-slate-400 transition-opacity duration-200"
                             style={{ 
@@ -801,7 +869,10 @@
                   <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center border-4 border-white shadow-lg text-4xl uppercase font-bold text-slate-300 mb-3">{userProfile?.username?.charAt(0)}</div>
                   {!isEditingProfile ? (
                     <div className="text-center w-full">
-                      <h3 className="text-2xl font-bold">{getDisplayName(userProfile)}</h3>
+                      <h3 className="text-2xl font-bold flex items-center justify-center">
+                        {getDisplayName(userProfile)}
+                        {isAdmin && <Shield className="w-5 h-5 text-indigo-500 ml-2" title="Sistem Yöneticisi" />}
+                      </h3>
                       {(userProfile?.name || userProfile?.surname) && <p className="text-rose-500 font-medium text-sm mb-1">@{userProfile?.username}</p>}
                       <div className="flex flex-wrap justify-center gap-2 mt-2 mb-4"><div className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full flex items-center"><Brain className="w-3 h-3 mr-1"/> {userProfile?.mbti || 'ENTP'}</div></div>
                       
@@ -811,6 +882,12 @@
                       </div>
 
                       <button onClick={() => setIsEditingProfile(true)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center"><Edit className="w-4 h-4 mr-2" /> Profili Düzenle</button>
+                      
+                      {isAdmin && (
+                        <button onClick={() => setActiveTab('admin')} className="w-full bg-slate-800 hover:bg-slate-900 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center mt-3 transition-colors shadow-lg">
+                          <Shield className="w-4 h-4 mr-2" /> Admin Paneli
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <form onSubmit={async (e) => { e.preventDefault(); await UserService.updateProfile(userProfile.username, profileForm); setIsEditingProfile(false); }} className="w-full mt-4 space-y-3 bg-white p-4 rounded-2xl shadow-sm border text-left">
@@ -837,13 +914,81 @@
             </div>
           );
 
+          const renderAdminView = () => (
+            <div className="flex flex-col h-full bg-slate-50 p-6 overflow-y-auto pb-24 animate-in slide-in-from-bottom-4 relative">
+              {/* Custom Alert/Message Box */}
+              {adminMessage && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg z-50 animate-in fade-in slide-in-from-top-2 whitespace-nowrap">
+                  {adminMessage}
+                </div>
+              )}
+              
+              {/* Custom Delete Confirmation Modal */}
+              {deleteTarget && (
+                <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center animate-in zoom-in-95">
+                    <Shield className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+                    <h3 className="font-bold text-lg text-slate-800 mb-2">Emin misiniz?</h3>
+                    <p className="text-sm text-slate-600 mb-6">@{deleteTarget} adlı kullanıcıyı ve tüm verilerini sistemden kalıcı olarak silmek üzeresiniz.</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => setDeleteTarget(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">İptal</button>
+                      <button onClick={confirmDeleteUser} className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl font-bold text-sm shadow-md">Evet, Sil</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center mb-6 flex-shrink-0">
+                <h2 className="text-xl font-bold flex items-center text-slate-800"><Shield className="w-6 h-6 mr-2 text-indigo-500"/> Admin Paneli</h2>
+                <button onClick={() => setActiveTab('profile')} className="text-slate-400 hover:text-slate-600 bg-slate-200/50 p-2 rounded-full transition-colors"><X className="w-5 h-5"/></button>
+              </div>
+              
+              <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 mb-6 flex-shrink-0 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500"></div>
+                <h3 className="font-bold text-sm text-slate-700 mb-4">Yeni Kullanıcı Ekle</h3>
+                <form onSubmit={handleAdminAddUser} className="space-y-3">
+                  <input type="text" placeholder="Kullanıcı Adı" required value={adminForm.username} onChange={e => setAdminForm({...adminForm, username: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input type="email" placeholder="E-Posta" required value={adminForm.email} onChange={e => setAdminForm({...adminForm, email: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input type="text" placeholder="Şifre" required value={adminForm.password} onChange={e => setAdminForm({...adminForm, password: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <button type="submit" className="w-full bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl py-3 text-sm font-bold transition-colors shadow-md">Oluştur</button>
+                </form>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                <h3 className="font-bold text-sm text-slate-700 mb-3 ml-1">Kayıtlı Kullanıcılar ({allUsers.length})</h3>
+                <div className="space-y-3">
+                  {allUsers.map(u => (
+                    <div key={u.username} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center group">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 font-bold uppercase rounded-full flex items-center justify-center">
+                          {u.username.charAt(0)}
+                        </div>
+                        <div>
+                          <span className="font-bold text-sm text-slate-800 block">@{u.username}</span>
+                          <span className="text-[10px] text-slate-500 block">{u.email}</span>
+                        </div>
+                      </div>
+                      {u.username !== 'admin' && (
+                        <button onClick={() => setDeleteTarget(u.username)} className="w-9 h-9 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center hover:bg-rose-500 hover:text-white transition-colors opacity-100 md:opacity-50 group-hover:opacity-100">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+
           return (
             <div className="min-h-[100dvh] w-full flex items-center justify-center font-sans text-slate-900 bg-slate-200">
               <div className="w-full max-w-2xl h-[100dvh] bg-white md:shadow-2xl overflow-hidden relative flex flex-col">
                 {isCalling && <div className="absolute inset-0 bg-slate-900 z-[100] flex flex-col items-center justify-center text-white p-6 animate-in fade-in"><h2 className="text-3xl font-bold mb-2">@{partnerProfile?.username}</h2><p className="text-slate-400 mb-16">Aranıyor...</p><button onClick={()=>setIsCalling(false)} className="w-16 h-16 bg-rose-600 rounded-full flex items-center justify-center"><PhoneOff className="w-8 h-8" /></button></div>}
 
                 <div className="flex-1 min-h-0 relative flex flex-col">
-                  {!userProfile?.partnerId ? (
+                  {activeTab === 'admin' ? (
+                    renderAdminView()
+                  ) : !userProfile?.partnerId ? (
                     <>{activeTab === 'home' && renderDiscoverView()}{activeTab === 'requests' && renderRequestsView()}{activeTab === 'profile' && renderProfileView()}{(activeTab === 'journey' || activeTab === 'vr' || activeTab === 'chat') && renderDiscoverView()}</>
                   ) : (
                     <>{activeTab === 'home' && renderHomeView()}{activeTab === 'journey' && renderJourneyView()}{activeTab === 'vr' && renderVrView()}{activeTab === 'chat' && renderChatView()}{activeTab === 'profile' && renderProfileView()}</>
